@@ -23,7 +23,7 @@ interface UserProfile {
   age: number
   height: number
   weight: number
-  position: number        // 0.0 to 1.0
+  position: number
   isSide: boolean
   isOnline: boolean
   distance: number
@@ -40,7 +40,7 @@ interface UserProfile {
 
 type View = 'MAIN' | 'OWN_PROFILE'
 
-// ─── Telegram WebApp API ───────────────────────────────────────────────
+// ─── Telegram API ────────────────────────────────────────────────────
 
 interface TgWebApp {
   ready: () => void
@@ -70,7 +70,7 @@ const tgWebApp = (): TgWebApp | undefined => {
   } catch { return undefined }
 }
 
-// ─── Cloud Storage Keys ──────────────────────────────────────────────
+// ─── Cloud Storage ───────────────────────────────────────────────────
 
 const CLOUD = {
   age: 'hk_age',
@@ -85,7 +85,7 @@ const CLOUD = {
   lng: 'hk_lng',
 }
 
-// ─── Role Format Helpers ─────────────────────────────────────────────
+// ─── Role Helpers ────────────────────────────────────────────────────
 
 function formatRole(value: number, isSide: boolean): string {
   if (isSide) return 'Side'
@@ -135,7 +135,25 @@ function passesOppositeFilter(user: UserProfile, me: UserProfile): boolean {
   return true
 }
 
-// Convert Supabase DbUser to app UserProfile
+// ─── Distance ────────────────────────────────────────────────────────
+
+function getDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371e3
+  const toRad = (x: number) => x * Math.PI / 180
+  const dLat = toRad(lat2 - lat1)
+  const dLng = toRad(lng2 - lng1)
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
+function formatDist(d: number): string {
+  if (d === 0) return '0m'
+  if (d < 1000) return `${Math.round(d)}m`
+  return `${(d / 1000).toFixed(1)}km`
+}
+
+// ─── DbUser → UserProfile ────────────────────────────────────────────
+
 function dbToProfile(u: DbUser, myLat: number, myLng: number): UserProfile {
   const dist = u.lat && u.lng ? getDistance(myLat, myLng, u.lat, u.lng) : 0
   return {
@@ -157,24 +175,6 @@ function dbToProfile(u: DbUser, myLat: number, myLng: number): UserProfile {
     tgPhotoUrl: u.photo_url || undefined,
     tgPhotos: u.photo_url ? [u.photo_url] : [],
   }
-}
-
-// Haversine distance in meters
-function getDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const R = 6371e3
-  const toRad = (x: number) => x * Math.PI / 180
-  const dLat = toRad(lat2 - lat1)
-  const dLng = toRad(lng2 - lng1)
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-}
-
-// ─── Distance Format ─────────────────────────────────────────────────
-
-function formatDist(d: number): string {
-  if (d === 0) return '0m'
-  if (d < 1000) return `${Math.round(d)}m`
-  return `${(d / 1000).toFixed(1)}km`
 }
 
 // ─── Photo Overlay ────────────────────────────────────────────────────
@@ -256,7 +256,7 @@ function PhotoOverlay({ user, onClose, onMessage }: { user: UserProfile; onClose
   )
 }
 
-// ─── Location Gate ─────────────────────────────────────────────────────
+// ─── Location Gate ────────────────────────────────────────────────────
 
 function LocationGate({ onGranted }: { onGranted: (lat: number, lng: number) => void }) {
   const [status, setStatus] = useState<'checking' | 'needed' | 'requesting' | 'denied'>('checking')
@@ -310,7 +310,58 @@ function LocationGate({ onGranted }: { onGranted: (lat: number, lng: number) => 
   )
 }
 
-// ─── Main Screen ───────────────────────────────────────────────────────
+// ─── Profile Grid Tile ───────────────────────────────────────────────
+
+function ProfileTile({ user, onClick }: { user: UserProfile; onClick: () => void }) {
+  const [imgLoaded, setImgLoaded] = useState(false)
+  const photo = user.tgPhotoUrl
+  const roleLabel = getRoleLabel(user.position, user.isSide)
+
+  return (
+    <button onClick={onClick} className="card-enter relative aspect-[3/4] rounded-lg overflow-hidden nav-press text-left">
+      {/* Photo layer */}
+      {photo && (
+        <img
+          src={photo}
+          alt={user.name}
+          className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${imgLoaded ? 'opacity-100' : 'opacity-0'}`}
+          onLoad={() => setImgLoaded(true)}
+          onError={() => setImgLoaded(false)}
+          loading="lazy"
+          crossOrigin="anonymous"
+        />
+      )}
+      {/* Placeholder (shown while loading or if no photo) */}
+      {!imgLoaded && (
+        <div className="absolute inset-0 bg-[#1A1A1A] flex items-center justify-center">
+          <span className="text-lg font-bold text-[#8E8E93]">{user.name.charAt(0)}</span>
+        </div>
+      )}
+      {/* Gradient overlay */}
+      <div className="absolute inset-0 profile-photo-gradient" />
+      {/* Online dot */}
+      {user.isOnline && (
+        <div className="absolute top-0.5 right-0.5 w-2 h-2 bg-[#00D4AA] rounded-full online-pulse" />
+      )}
+      {/* Own profile border */}
+      {user.isOwn && (
+        <div className="absolute inset-0 border-2 border-[#FF6B35] rounded-lg pointer-events-none" />
+      )}
+      {/* Text overlay */}
+      <div className="absolute bottom-0 left-0 right-0 px-1 pb-1">
+        <p className={`font-semibold text-[10px] leading-tight truncate ${user.isOwn ? 'text-[#FF6B35]' : 'text-white'}`}>
+          {user.isOwn ? 'You' : user.name}
+        </p>
+        <div className="flex items-center justify-between">
+          <p className="text-[#FF6B35] text-[9px] font-medium">{formatDist(user.distance)}</p>
+          <p className="text-[#8E8E93] text-[8px] font-bold">{roleLabel}</p>
+        </div>
+      </div>
+    </button>
+  )
+}
+
+// ─── Main Screen ──────────────────────────────────────────────────────
 
 function MainScreen({ ownProfile, users, onViewOwnProfile, onViewPhoto }: {
   ownProfile: UserProfile
@@ -321,7 +372,6 @@ function MainScreen({ ownProfile, users, onViewOwnProfile, onViewPhoto }: {
   const [onlineOnly, setOnlineOnly] = useState(false)
   const [roleFilter, setRoleFilter] = useState<string | null>(null)
   const [useOpposite, setUseOpposite] = useState(true)
-  const [photoLoaded, setPhotoLoaded] = useState(false)
 
   const cycleRole = () => {
     const idx = roleFilter === null ? 0 : ROLE_CYCLE.indexOf(roleFilter)
@@ -330,15 +380,18 @@ function MainScreen({ ownProfile, users, onViewOwnProfile, onViewPhoto }: {
     setUseOpposite(false)
   }
 
-  const filteredUsers = users.filter((u) => {
+  // Build grid: own profile first, then filtered users
+  const allGridUsers: UserProfile[] = [ownProfile, ...users.filter(u => u.id !== ownProfile.id)]
+  const filteredGrid = allGridUsers.filter((u) => {
+    if (u.isOwn) return true // always show own profile
     if (onlineOnly && !u.isOnline) return false
     if (useOpposite && !roleFilter) return passesOppositeFilter(u, ownProfile)
     if (roleFilter) return passesRoleFilter(u, roleFilter)
     return true
   })
 
-  const roleLabel = getRoleLabel(ownProfile.position, ownProfile.isSide)
-  const photo = ownProfile.tgPhotoUrl
+  // Role filter label that groups with preferences
+  const filterLabel = roleFilter || 'Roles'
 
   return (
     <div className="pb-20">
@@ -347,87 +400,36 @@ function MainScreen({ ownProfile, users, onViewOwnProfile, onViewPhoto }: {
         <h1 className="text-xl font-bold gradient-text tracking-tight">HKMOC</h1>
       </div>
 
-      {/* Filters + Preferences */}
+      {/* Filter bar — all grouped together */}
       <div className="px-3 py-2">
         <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide">
           <button onClick={() => { setOnlineOnly(false); setUseOpposite(true); setRoleFilter(null); }} className={`px-3 py-1 rounded-full text-xs font-medium transition-all nav-press flex-shrink-0 ${!onlineOnly && useOpposite && !roleFilter ? 'gradient-btn text-white' : 'bg-[#1A1A1A] text-[#8E8E93] border border-[#2C2C2E]'}`}>Nearby</button>
           <button onClick={() => setOnlineOnly(true)} className={`px-3 py-1 rounded-full text-xs font-medium transition-all nav-press flex-shrink-0 ${onlineOnly ? 'gradient-btn text-white' : 'bg-[#1A1A1A] text-[#8E8E93] border border-[#2C2C2E]'}`}>Online</button>
-          <button onClick={cycleRole} className={`px-3 py-1 rounded-full text-xs font-bold transition-all nav-press flex-shrink-0 ${roleFilter ? 'gradient-btn text-white' : 'bg-[#1A1A1A] text-[#8E8E93] border border-[#2C2C2E]'}`}>{roleFilter || 'Roles'}</button>
-          <div className="w-px h-4 bg-[#2C2C2E] mx-1 flex-shrink-0" />
+
+          {/* Role filter + preferences grouped */}
+          <button onClick={cycleRole} className={`px-3 py-1 rounded-full text-xs font-bold transition-all nav-press flex-shrink-0 ${roleFilter ? 'gradient-btn text-white' : 'bg-[#1A1A1A] text-[#8E8E93] border border-[#2C2C2E]'}`}>{filterLabel}</button>
           <span className={`text-[10px] font-bold px-2 py-1 rounded-full flex-shrink-0 ${ownProfile.preference1 === 'Safe' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>{ownProfile.preference1}</span>
           <span className={`text-[10px] font-bold px-2 py-1 rounded-full flex-shrink-0 ${ownProfile.preference2 === 'Clean' ? 'bg-blue-500/20 text-blue-400' : 'bg-purple-500/20 text-purple-400'}`}>{ownProfile.preference2}</span>
           <span className={`text-[10px] font-bold px-2 py-1 rounded-full flex-shrink-0 ${ownProfile.preference3 === '1on1' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-orange-500/20 text-orange-400'}`}>{ownProfile.preference3}</span>
         </div>
       </div>
 
-      {/* Own Profile */}
-      <div className="px-3 pb-3">
-        <button onClick={onViewOwnProfile} className="w-full flex items-center gap-3 p-2.5 bg-[#1A1A1A] border border-[#FF6B35]/50 rounded-xl nav-press text-left">
-          <div className="relative flex-shrink-0 w-14 h-14 rounded-xl overflow-hidden bg-[#242424]">
-            {photo && (
-              <img src={photo} alt="You" className={`w-full h-full object-cover ${photoLoaded ? 'opacity-100' : 'opacity-0'}`} onLoad={() => setPhotoLoaded(true)} onError={() => setPhotoLoaded(false)} />
-            )}
-            {!photoLoaded && (
-              <div className="absolute inset-0 flex items-center justify-center">
-                <span className="text-lg font-bold text-[#8E8E93]">{ownProfile.name.charAt(0)}</span>
-              </div>
-            )}
-            <div className="absolute bottom-0 left-0 right-0 bg-[#0088CC]/70 text-center py-0.5">
-              <span className="text-white text-[7px] font-bold uppercase">TG</span>
-            </div>
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-white">{ownProfile.name} <span className="text-[#8E8E93] font-normal">({ownProfile.age})</span></p>
-            <div className="flex items-center gap-2 mt-0.5 text-[10px] text-[#8E8E93]">
-              <span>{ownProfile.height}cm</span>
-              <span>{ownProfile.weight}kg</span>
-              <span className="text-[#FF6B35] font-bold">{roleLabel}</span>
-            </div>
-          </div>
-          <div className="flex items-center gap-1 bg-[#FF6B35]/10 px-2 py-1 rounded-full flex-shrink-0">
-            <MapPin className="w-3 h-3 text-[#FF6B35]" />
-            <span className="text-xs font-medium text-[#FF6B35]">0m</span>
-          </div>
-        </button>
-      </div>
-
-      {/* User Grid — real data only */}
+      {/* Profile Grid — 5 columns, own profile always top-left */}
       <div className="px-3">
-        {users.length === 0 ? (
+        {filteredGrid.length === 0 ? (
           <div className="text-center py-12 border-2 border-dashed border-[#2C2C2E] rounded-xl">
             <Users className="w-8 h-8 text-[#2C2C2E] mx-auto mb-2" />
             <p className="text-[#8E8E93] text-xs">No members nearby yet</p>
             <p className="text-[#8E8E93] text-[10px] mt-1">Be the first to join</p>
           </div>
-        ) : filteredUsers.length === 0 ? (
-          <div className="text-center py-8">
-            <Users className="w-8 h-8 text-[#2C2C2E] mx-auto mb-2" />
-            <p className="text-[#8E8E93] text-xs">No members match this filter</p>
-            <button onClick={() => { setRoleFilter(null); setUseOpposite(true); }} className="text-[#FF6B35] text-xs mt-2 nav-press">Reset filter</button>
-          </div>
         ) : (
           <div className="grid grid-cols-5 gap-1.5">
-            {filteredUsers.map((user, i) => (
-              <button
+            {filteredGrid.map((user) => (
+              <ProfileTile
                 key={user.id}
-                onClick={() => onViewPhoto(user)}
-                className="card-enter relative aspect-[3/4] rounded-lg overflow-hidden nav-press text-left"
-                style={{ animationDelay: `${i * 50}ms` }}
-              >
-                {user.tgPhotoUrl ? (
-                  <img src={user.tgPhotoUrl} alt={user.name} className="w-full h-full object-cover" loading="lazy" />
-                ) : (
-                  <div className="w-full h-full bg-[#1A1A1A] flex items-center justify-center">
-                    <span className="text-lg font-bold text-[#8E8E93]">{user.name.charAt(0)}</span>
-                  </div>
-                )}
-                <div className="absolute inset-0 profile-photo-gradient" />
-                {user.isOnline && <div className="absolute top-0.5 right-0.5 w-2 h-2 bg-[#00D4AA] rounded-full online-pulse" />}
-                <div className="absolute bottom-0 left-0 right-0 px-1 pb-1">
-                  <p className="font-semibold text-[10px] leading-tight truncate text-white">{user.name}</p>
-                  <p className="text-[#FF6B35] text-[9px] font-medium">{formatDist(user.distance)}</p>
-                </div>
-              </button>
+                user={user}
+                onClick={() => user.isOwn ? onViewOwnProfile() : onViewPhoto(user)}
+              />
             ))}
           </div>
         )}
@@ -439,7 +441,7 @@ function MainScreen({ ownProfile, users, onViewOwnProfile, onViewPhoto }: {
           <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-[#00D4AA]" />Online</span>
           <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-[#8E8E93]" />Offline</span>
         </div>
-        <span className="text-[#FF6B35]">You = orange</span>
+        <span className="text-[#FF6B35]">You = orange border</span>
       </div>
     </div>
   )
@@ -451,12 +453,6 @@ function OwnProfileScreen({ profile, onUpdate, onBack }: {
   profile: UserProfile; onUpdate: (p: UserProfile) => void; onBack: () => void
 }) {
   const [editField, setEditField] = useState<string | null>(null)
-  const [photoLoaded, setPhotoLoaded] = useState(false)
-
-  const saveToCloud = (field: string, value: string) => {
-    const tg = tgWebApp()
-    if (tg?.CloudStorage) tg.CloudStorage.setItem(field, value)
-  }
 
   const update = (field: keyof UserProfile, value: unknown) => {
     const updated = { ...profile, [field]: value }
@@ -467,7 +463,8 @@ function OwnProfileScreen({ profile, onUpdate, onBack }: {
       position: CLOUD.position, isSide: CLOUD.isSide,
       preference1: CLOUD.pref1, preference2: CLOUD.pref2, preference3: CLOUD.pref3,
     }
-    if (keyMap[field]) saveToCloud(keyMap[field], String(value))
+    const tg = tgWebApp()
+    if (keyMap[field] && tg?.CloudStorage) tg.CloudStorage.setItem(keyMap[field], String(value))
   }
 
   const togglePref = (field: 'preference1' | 'preference2' | 'preference3', a: string, b: string) => {
@@ -485,17 +482,20 @@ function OwnProfileScreen({ profile, onUpdate, onBack }: {
         <div className="w-8" />
       </div>
 
-      {/* All content — no scroll */}
       <div className="flex-1 flex flex-col px-3 pt-3 pb-2 overflow-hidden">
 
         {/* Photo + Stats Row */}
         <div className="flex gap-3 shrink-0">
           <div className="relative w-20 h-20 rounded-xl overflow-hidden flex-shrink-0 bg-[#1A1A1A]">
-            {photo && (
-              <img src={photo} alt="You" className={`w-full h-full object-cover ${photoLoaded ? 'opacity-100' : 'opacity-0'}`} onLoad={() => setPhotoLoaded(true)} onError={() => setPhotoLoaded(false)} />
-            )}
-            {!photoLoaded && (
-              <div className="absolute inset-0 flex items-center justify-center">
+            {photo ? (
+              <>
+                <img src={photo} alt="You" className="w-full h-full object-cover" onLoad={(e) => (e.currentTarget as HTMLImageElement).style.opacity = '1'} onError={(e) => (e.currentTarget as HTMLImageElement).style.opacity = '0'} style={{ opacity: 0, transition: 'opacity 0.3s' }} />
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <span className="text-2xl font-bold text-[#8E8E93]">{profile.name.charAt(0)}</span>
+                </div>
+              </>
+            ) : (
+              <div className="w-full h-full flex items-center justify-center">
                 <span className="text-2xl font-bold text-[#8E8E93]">{profile.name.charAt(0)}</span>
               </div>
             )}
@@ -507,7 +507,7 @@ function OwnProfileScreen({ profile, onUpdate, onBack }: {
           <div className="flex-1 flex flex-col justify-center gap-1 min-w-0">
             <div className="flex items-center gap-2">
               <span className="text-white font-bold text-base">{profile.name}</span>
-              <span className="text-[#8E8E93] text-sm">{profile.age}</span>
+              <span className="text-[#8E8E93] text-sm">{profile.age || 'Set age'}</span>
               {profile.isOnline && <span className="px-1.5 py-0.5 bg-[#00D4AA]/20 text-[#00D4AA] text-[9px] font-bold rounded-full">ONLINE</span>}
             </div>
             <div className="flex items-center gap-2 text-xs text-[#8E8E93]">
@@ -527,7 +527,7 @@ function OwnProfileScreen({ profile, onUpdate, onBack }: {
 
         <div className="shrink-0 h-px bg-[#2C2C2E] my-3" />
 
-        {/* Age / Height / Weight */}
+        {/* Editable Fields */}
         <div className="shrink-0 space-y-1.5">
           <button onClick={() => setEditField(editField === 'age' ? null : 'age')} className="w-full flex items-center justify-between px-3 py-2 bg-[#1A1A1A] rounded-lg text-left nav-press">
             <span className="text-xs text-[#8E8E93] font-medium uppercase">Age</span>
@@ -607,7 +607,6 @@ function OwnProfileScreen({ profile, onUpdate, onBack }: {
 
         <div className="flex-1 min-h-0" />
 
-        {/* Save */}
         <div className="shrink-0 pt-2">
           <button onClick={onBack} className="w-full h-10 gradient-btn rounded-xl text-white font-semibold text-sm nav-press flex items-center justify-center gap-2">
             <Check className="w-4 h-4" />Save
@@ -624,16 +623,21 @@ function BottomNav() {
   const handleGroupChat = () => {
     try {
       const tg = tgWebApp()
-      // Try openTelegramLink first (opens inside Telegram app)
-      if (tg?.openTelegramLink) {
+      if (!tg) return
+
+      // Primary: openTelegramLink (opens inside Telegram app)
+      if (typeof tg.openTelegramLink === 'function') {
         tg.openTelegramLink('https://t.me/hkmembersonlychat')
         return
       }
-      // Fallback to openLink
-      if (tg?.openLink) {
+
+      // Fallback: openLink (opens in external browser/WebView)
+      if (typeof tg.openLink === 'function') {
         tg.openLink('https://t.me/hkmembersonlychat')
         return
       }
+
+      console.error('No Telegram link handler available')
     } catch (err) {
       console.error('Group chat error:', err)
     }
@@ -666,11 +670,10 @@ export default function App() {
   const [locationGranted, setLocationGranted] = useState(false)
   const tgUserId = useRef<number | null>(null)
 
-  // ── Load from Telegram + CloudStorage ────────────────────────────
+  // Load from Telegram + CloudStorage
   useEffect(() => {
     const tg = tgWebApp()
     if (!tg) return
-
     tg.ready()
     tg.expand()
     tg.setHeaderColor('#0A0A0A')
@@ -688,26 +691,7 @@ export default function App() {
       }))
     }
 
-    tg.CloudStorage.getItems(Object.values(CLOUD), (err, result) => {
-      if (err || !result) return
-      const loaded = {
-        age: result[CLOUD.age] ? parseInt(result[CLOUD.age]) : 0,
-        height: result[CLOUD.height] ? parseInt(result[CLOUD.height]) : 170,
-        weight: result[CLOUD.weight] ? parseInt(result[CLOUD.weight]) : 65,
-        position: result[CLOUD.position] ? parseFloat(result[CLOUD.position]) : 0.5,
-        isSide: result[CLOUD.isSide] === 'true',
-        preference1: (result[CLOUD.pref1] as UserProfile['preference1']) || 'Safe',
-        preference2: (result[CLOUD.pref2] as UserProfile['preference2']) || 'Clean',
-        preference3: (result[CLOUD.pref3] as UserProfile['preference3']) || '1on1',
-      }
-      setOwnProfile(prev => {
-        const updated = { ...prev, ...loaded }
-        doUpsert(updated)
-        return updated
-      })
-    })
-
-    // Save to Supabase after CloudStorage data is loaded
+    // Save basic profile to Supabase
     const doUpsert = (profile: UserProfile) => {
       if (tgUserId.current) {
         upsertUser({
@@ -726,9 +710,30 @@ export default function App() {
       }
     }
 
+    tg.CloudStorage.getItems(Object.values(CLOUD), (err, result) => {
+      if (err || !result) {
+        doUpsert(ownProfile)
+        return
+      }
+      const loaded = {
+        age: result[CLOUD.age] ? parseInt(result[CLOUD.age]) : 0,
+        height: result[CLOUD.height] ? parseInt(result[CLOUD.height]) : 170,
+        weight: result[CLOUD.weight] ? parseInt(result[CLOUD.weight]) : 65,
+        position: result[CLOUD.position] ? parseFloat(result[CLOUD.position]) : 0.5,
+        isSide: result[CLOUD.isSide] === 'true',
+        preference1: (result[CLOUD.pref1] as UserProfile['preference1']) || 'Safe',
+        preference2: (result[CLOUD.pref2] as UserProfile['preference2']) || 'Clean',
+        preference3: (result[CLOUD.pref3] as UserProfile['preference3']) || '1on1',
+      }
+      setOwnProfile(prev => {
+        const updated = { ...prev, ...loaded }
+        doUpsert(updated)
+        return updated
+      })
+    })
   }, [])
 
-  // Heartbeat: update online status every 30s, refresh nearby users every 60s
+  // Heartbeat
   useEffect(() => {
     if (!locationGranted) return
     const uid = tgUserId.current
@@ -762,28 +767,20 @@ export default function App() {
     setLocationGranted(true)
     setOwnProfile(prev => ({ ...prev, lat, lng }))
 
-    // Save to CloudStorage
     const tg = tgWebApp()
     if (tg?.CloudStorage) {
       tg.CloudStorage.setItem(CLOUD.lat, String(lat))
       tg.CloudStorage.setItem(CLOUD.lng, String(lng))
     }
 
-    // Save location to Supabase
     const uid = tgUserId.current
     if (uid) {
-      upsertUser({
-        id: uid,
-        lat,
-        lng,
-        is_online: true,
-      }).catch(console.error)
+      upsertUser({ id: uid, lat, lng, is_online: true }).catch(console.error)
     }
 
-    // Fetch nearby users from Supabase
     fetchNearby(lat, lng).then(dbUsers => {
       const myId = tgUserId.current
-      const mapped: UserProfile[] = dbUsers
+      const mapped = dbUsers
         .filter(u => u.id !== myId)
         .map(u => dbToProfile(u, lat, lng))
       setUsers(mapped)
