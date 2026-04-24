@@ -11,6 +11,7 @@ import {
   MapPin,
   X,
   MessageCircle,
+  LocateFixed,
 } from 'lucide-react'
 
 // ─── Types ───────────────────────────────────────────────────────────
@@ -25,6 +26,8 @@ interface UserProfile {
   isSide: boolean         // Side mode toggle
   isOnline: boolean
   distance: number
+  lat?: number
+  lng?: number
   isOwn?: boolean
   preference1?: 'Safe' | 'Raw'
   preference2?: 'Clean' | 'Party'
@@ -73,26 +76,96 @@ const CLOUD = {
   pref1: 'hk_pref1',
   pref2: 'hk_pref2',
   pref3: 'hk_pref3',
+  lat: 'hk_lat',
+  lng: 'hk_lng',
 }
 
-// ─── Position Display Helper ─────────────────────────────────────────
+// ─── Role Format Helper ──────────────────────────────────────────────
 
 function formatRole(value: number, isSide: boolean): string {
   if (isSide) return 'Side'
-  if (value === 0) return '0 B'
-  if (value === 1) return '1 T'
-  if (value <= 0.35) return `${value.toFixed(1)} VB`
-  if (value <= 0.65) return `${value.toFixed(1)} V`
-  return `${value.toFixed(1)} VT`
+  if (value === 0) return '0 Bottom'
+  if (value === 1) return '1 Top'
+  if (value <= 0.35) return `${value.toFixed(1)} Versatile Bottom`
+  if (value <= 0.65) return `${value.toFixed(1)} Versatile`
+  return `${value.toFixed(1)} Versatile Top`
 }
+
+function getRoleLabel(value: number, isSide: boolean): string {
+  if (isSide) return 'Side'
+  if (value === 0) return 'B'
+  if (value === 1) return 'T'
+  if (value <= 0.35) return 'VB'
+  if (value <= 0.65) return 'V'
+  return 'VT'
+}
+
+// ─── Backend Config ──────────────────────────────────────────────────
+
+// Set this to your Supabase REST API URL after setup
+// const SUPABASE_URL = ''      // e.g., 'https://xxxxx.supabase.co/rest/v1'
+// const SUPABASE_KEY = ''      // your anon/public key
+
+// ─── Mock Users (for dev only) ───────────────────────────────────────
+
+const MOCK_USERS: UserProfile[] = [
+  { id: 'u1', name: 'Jason', age: 25, height: 175, weight: 65, position: 0.2, isSide: false, isOnline: true, distance: 150, lat: 22.28, lng: 114.17, preference1: 'Raw', preference2: 'Party', preference3: 'Group', tgUsername: 'jasonhk', tgPhotoUrl: '/profiles/user-1.jpg', tgPhotos: ['/profiles/user-1.jpg', '/profiles/user-5.jpg'] },
+  { id: 'u2', name: 'Ryan', age: 28, height: 182, weight: 78, position: 1.0, isSide: false, isOnline: true, distance: 320, lat: 22.30, lng: 114.18, preference1: 'Safe', preference2: 'Clean', preference3: '1on1', tgUsername: 'ryan_hk', tgPhotoUrl: '/profiles/user-2.jpg', tgPhotos: ['/profiles/user-2.jpg', '/profiles/user-10.jpg'] },
+  { id: 'u3', name: 'Daniel', age: 30, height: 180, weight: 75, position: 0.5, isSide: false, isOnline: false, distance: 500, lat: 22.25, lng: 114.15, preference1: 'Safe', preference2: 'Party', preference3: 'Group', tgUsername: 'danielhk', tgPhotoUrl: '/profiles/user-3.jpg', tgPhotos: ['/profiles/user-3.jpg', '/profiles/user-6.jpg'] },
+  { id: 'u4', name: 'Ethan', age: 23, height: 170, weight: 60, position: 0.0, isSide: false, isOnline: true, distance: 80, lat: 22.29, lng: 114.16, preference1: 'Raw', preference2: 'Clean', preference3: '1on1', tgUsername: 'ethan_hk', tgPhotoUrl: '/profiles/user-4.jpg', tgPhotos: ['/profiles/user-4.jpg', '/profiles/user-9.jpg'] },
+  { id: 'u5', name: 'Kevin', age: 26, height: 176, weight: 70, position: 0.8, isSide: false, isOnline: true, distance: 210, lat: 22.27, lng: 114.19, preference1: 'Safe', preference2: 'Party', preference3: '1on1', tgUsername: 'kevin_gym', tgPhotoUrl: '/profiles/user-5.jpg', tgPhotos: ['/profiles/user-5.jpg', '/profiles/user-1.jpg'] },
+  { id: 'u6', name: 'Marcus', age: 35, height: 183, weight: 80, position: 0.6, isSide: true, isOnline: false, distance: 890, lat: 22.22, lng: 114.12, preference1: 'Safe', preference2: 'Clean', preference3: 'Group', tgUsername: 'marcus_hk', tgPhotoUrl: '/profiles/user-6.jpg', tgPhotos: ['/profiles/user-6.jpg', '/profiles/user-3.jpg'] },
+  { id: 'u7', name: 'Leo', age: 22, height: 172, weight: 63, position: 0.4, isSide: false, isOnline: true, distance: 450, lat: 22.31, lng: 114.20, preference1: 'Raw', preference2: 'Party', preference3: 'Group', tgUsername: 'leo_hikes', tgPhotoUrl: '/profiles/user-7.jpg', tgPhotos: ['/profiles/user-7.jpg', '/profiles/user-11.jpg'] },
+  { id: 'u8', name: 'Brandon', age: 29, height: 178, weight: 74, position: 0.1, isSide: false, isOnline: false, distance: 670, lat: 22.24, lng: 114.13, preference1: 'Raw', preference2: 'Clean', preference3: '1on1', tgUsername: 'brandon_hk', tgPhotoUrl: '/profiles/user-8.jpg', tgPhotos: ['/profiles/user-8.jpg', '/profiles/user-12.jpg'] },
+  { id: 'u9', name: 'Chris', age: 27, height: 177, weight: 71, position: 0.9, isSide: false, isOnline: true, distance: 120, lat: 22.26, lng: 114.18, preference1: 'Safe', preference2: 'Clean', preference3: '1on1', tgUsername: 'chris_hk', tgPhotoUrl: '/profiles/user-9.jpg', tgPhotos: ['/profiles/user-9.jpg', '/profiles/user-4.jpg'] },
+  { id: 'u10', name: 'Nathan', age: 31, height: 181, weight: 77, position: 0.3, isSide: false, isOnline: false, distance: 340, lat: 22.23, lng: 114.14, preference1: 'Raw', preference2: 'Party', preference3: 'Group', tgUsername: 'nathan_pool', tgPhotoUrl: '/profiles/user-10.jpg', tgPhotos: ['/profiles/user-10.jpg', '/profiles/user-2.jpg'] },
+  { id: 'u11', name: 'Tyler', age: 24, height: 174, weight: 66, position: 0.0, isSide: false, isOnline: true, distance: 560, lat: 22.32, lng: 114.21, preference1: 'Raw', preference2: 'Party', preference3: 'Group', tgUsername: 'tyler_night', tgPhotoUrl: '/profiles/user-11.jpg', tgPhotos: ['/profiles/user-11.jpg', '/profiles/user-7.jpg'] },
+  { id: 'u12', name: 'Adrian', age: 32, height: 179, weight: 73, position: 0.7, isSide: false, isOnline: false, distance: 780, lat: 22.21, lng: 114.11, preference1: 'Safe', preference2: 'Clean', preference3: '1on1', tgUsername: 'adrian_art', tgPhotoUrl: '/profiles/user-12.jpg', tgPhotos: ['/profiles/user-12.jpg', '/profiles/user-8.jpg'] },
+]
+
+// ─── Filter Logic ────────────────────────────────────────────────────
+
+function passesRoleFilter(user: UserProfile, filter: string | null): boolean {
+  if (!filter || filter === 'All') return true
+  if (filter === 'Side') return user.isSide
+  if (user.isSide) return false // Side users only show in Side filter
+  const v = user.position
+  if (filter === 'B') return v === 0
+  if (filter === 'VB') return v > 0 && v <= 0.35
+  if (filter === 'V') return v >= 0.4 && v <= 0.65
+  if (filter === 'VT') return v >= 0.7 && v < 1
+  if (filter === 'T') return v === 1
+  return true
+}
+
+function passesOppositeFilter(user: UserProfile, me: UserProfile): boolean {
+  // Show users whose role is "opposite" or compatible with mine
+  if (me.isSide) return user.isSide
+  if (user.isSide) return true // Side is compatible with everyone
+  const myVal = me.position
+  const theirVal = user.position
+  // If I'm pure top (0.9-1.0), show bottoms and vers bottoms
+  if (myVal >= 0.9) return theirVal <= 0.35 || (theirVal >= 0.4 && theirVal <= 0.65)
+  // If I'm pure bottom (0-0.1), show tops and vers tops
+  if (myVal <= 0.1) return theirVal >= 0.7 || (theirVal >= 0.4 && theirVal <= 0.65)
+  // If I'm versatile, show versatile and compatible
+  if (myVal >= 0.4 && myVal <= 0.65) return true
+  // If I'm vers top (0.7-0.85), show everyone except pure tops
+  if (myVal >= 0.7 && myVal < 1) return theirVal < 0.9
+  // If I'm vers bottom (0.15-0.35), show everyone except pure bottoms
+  if (myVal > 0.1 && myVal <= 0.35) return theirVal > 0.1
+  return true
+}
+
+const ROLE_CYCLE = ['All', 'B', 'VB', 'V', 'VT', 'T', 'Side']
 
 // ─── Photo Overlay ───────────────────────────────────────────────────
 
 function PhotoOverlay({ user, onClose, onMessage }: { user: UserProfile; onClose: () => void; onMessage: (u: UserProfile) => void }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [activeIdx, setActiveIdx] = useState(0)
-  const [imgError, setImgError] = useState(false)
   const photos = user.tgPhotos?.length ? user.tgPhotos : (user.tgPhotoUrl ? [user.tgPhotoUrl] : [])
+  const role = formatRole(user.position, user.isSide)
 
   const handleScroll = () => {
     if (!scrollRef.current) return
@@ -100,7 +173,6 @@ function PhotoOverlay({ user, onClose, onMessage }: { user: UserProfile; onClose
   }
 
   const formatDist = (d: number) => d === 0 ? '0m' : d < 1000 ? `${d}m` : `${(d / 1000).toFixed(1)}km`
-  const role = formatRole(user.position, user.isSide)
 
   return (
     <div className="fixed inset-0 z-[60] bg-black/95 flex flex-col animate-in fade-in duration-200">
@@ -109,12 +181,12 @@ function PhotoOverlay({ user, onClose, onMessage }: { user: UserProfile; onClose
       </button>
 
       <div className="flex-1 flex items-center relative">
-        {photos.length > 0 && !imgError ? (
+        {photos.length > 0 ? (
           <>
             <div ref={scrollRef} onScroll={handleScroll} className="w-full flex overflow-x-auto snap-x snap-mandatory scrollbar-hide">
               {photos.map((photo, i) => (
                 <div key={i} className="w-full flex-shrink-0 snap-center flex items-center justify-center">
-                  <img src={photo} alt={`${user.name} ${i + 1}`} className="max-w-full max-h-[65vh] object-contain" draggable={false} onError={() => setImgError(true)} />
+                  <img src={photo} alt={`${user.name} ${i + 1}`} className="max-w-full max-h-[65vh] object-contain" draggable={false} />
                 </div>
               ))}
             </div>
@@ -168,27 +240,105 @@ function PhotoOverlay({ user, onClose, onMessage }: { user: UserProfile; onClose
   )
 }
 
+// ─── Location Gate ────────────────────────────────────────────────────
+
+function LocationGate({ onGranted }: { onGranted: (lat: number, lng: number) => void }) {
+  const [status, setStatus] = useState<'checking' | 'needed' | 'requesting' | 'denied'>('checking')
+
+  const requestLocation = () => {
+    setStatus('requesting')
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        onGranted(pos.coords.latitude, pos.coords.longitude)
+      },
+      (err) => {
+        console.log('Location error:', err)
+        setStatus('denied')
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+    )
+  }
+
+  useEffect(() => {
+    // Check if we already have location
+    navigator.geolocation.getCurrentPosition(
+      (pos) => onGranted(pos.coords.latitude, pos.coords.longitude),
+      () => setStatus('needed'),
+      { enableHighAccuracy: true, timeout: 5000, maximumAge: 60000 }
+    )
+  }, [])
+
+  if (status === 'checking') {
+    return (
+      <div className="fixed inset-0 z-[70] bg-[#0A0A0A] flex flex-col items-center justify-center">
+        <LocateFixed className="w-12 h-12 text-[#FF6B35] animate-pulse mb-4" />
+        <p className="text-white font-semibold">Checking location...</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="fixed inset-0 z-[70] bg-[#0A0A0A] flex flex-col items-center justify-center px-6">
+      <div className="w-16 h-16 rounded-full bg-[#FF6B35]/10 flex items-center justify-center mb-4">
+        <LocateFixed className="w-8 h-8 text-[#FF6B35]" />
+      </div>
+      <h2 className="text-xl font-bold text-white mb-2">Location Required</h2>
+      <p className="text-[#8E8E93] text-sm text-center mb-6">
+        HKMOC needs your location to show nearby members. Your location is only used to calculate distances — it is not shared with other users.
+      </p>
+
+      {status === 'denied' && (
+        <div className="bg-[#1A1A1A] border border-[#2C2C2E] rounded-xl p-4 mb-4 w-full max-w-sm">
+          <p className="text-[#FF6B35] text-sm font-semibold mb-1">Permission Denied</p>
+          <p className="text-[#8E8E93] text-xs">
+            Please enable location in your device settings, then tap below to retry.
+          </p>
+        </div>
+      )}
+
+      <button
+        onClick={requestLocation}
+        disabled={status === 'requesting'}
+        className="w-full max-w-sm h-12 gradient-btn rounded-xl text-white font-semibold text-sm nav-press flex items-center justify-center gap-2"
+      >
+        <LocateFixed className="w-4 h-4" />
+        {status === 'requesting' ? 'Getting location...' : 'Share My Location'}
+      </button>
+    </div>
+  )
+}
+
 // ─── Main Screen ─────────────────────────────────────────────────────
 
-function MainScreen({ ownProfile, onViewOwnProfile }: {
+function MainScreen({ ownProfile, users, onViewOwnProfile, onViewPhoto }: {
   ownProfile: UserProfile
+  users: UserProfile[]
   onViewOwnProfile: () => void
+  onViewPhoto: (u: UserProfile) => void
 }) {
   const [onlineOnly, setOnlineOnly] = useState(false)
   const [roleFilter, setRoleFilter] = useState<string | null>(null)
-  const [imgLoaded, setImgLoaded] = useState(false)
+  const [useOpposite, setUseOpposite] = useState(true)
+  const [photoLoaded, setPhotoLoaded] = useState(false)
 
   const cycleRole = () => {
-    if (roleFilter === null) setRoleFilter('B')
-    else if (roleFilter === 'B') setRoleFilter('VB')
-    else if (roleFilter === 'VB') setRoleFilter('V')
-    else if (roleFilter === 'V') setRoleFilter('VT')
-    else if (roleFilter === 'VT') setRoleFilter('T')
-    else setRoleFilter(null)
+    const idx = roleFilter === null ? 0 : ROLE_CYCLE.indexOf(roleFilter)
+    const next = idx >= ROLE_CYCLE.length - 1 ? null : ROLE_CYCLE[idx + 1]
+    setRoleFilter(next)
+    setUseOpposite(false)
   }
 
+  const allUsers = users.filter(u => u.id !== 'own')
+  const filteredUsers = allUsers.filter((u) => {
+    if (onlineOnly && !u.isOnline) return false
+    if (useOpposite && !roleFilter) return passesOppositeFilter(u, ownProfile)
+    if (roleFilter) return passesRoleFilter(u, roleFilter)
+    return true
+  })
+
+  const formatDist = (d: number) => d === 0 ? '0m' : d < 1000 ? `${d}m` : `${(d / 1000).toFixed(1)}km`
+  const roleLabel = getRoleLabel(ownProfile.position, ownProfile.isSide)
   const photo = ownProfile.tgPhotoUrl
-  const role = formatRole(ownProfile.position, ownProfile.isSide)
 
   return (
     <div className="pb-20">
@@ -200,7 +350,7 @@ function MainScreen({ ownProfile, onViewOwnProfile }: {
       {/* Filters + Preferences — single row */}
       <div className="px-3 py-2">
         <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide">
-          <button onClick={() => setOnlineOnly(false)} className={`px-3 py-1 rounded-full text-xs font-medium transition-all nav-press flex-shrink-0 ${!onlineOnly ? 'gradient-btn text-white' : 'bg-[#1A1A1A] text-[#8E8E93] border border-[#2C2C2E]'}`}>Nearby</button>
+          <button onClick={() => { setOnlineOnly(false); setUseOpposite(true); setRoleFilter(null); }} className={`px-3 py-1 rounded-full text-xs font-medium transition-all nav-press flex-shrink-0 ${!onlineOnly && useOpposite && !roleFilter ? 'gradient-btn text-white' : 'bg-[#1A1A1A] text-[#8E8E93] border border-[#2C2C2E]'}`}>Nearby</button>
           <button onClick={() => setOnlineOnly(true)} className={`px-3 py-1 rounded-full text-xs font-medium transition-all nav-press flex-shrink-0 ${onlineOnly ? 'gradient-btn text-white' : 'bg-[#1A1A1A] text-[#8E8E93] border border-[#2C2C2E]'}`}>Online</button>
           <button onClick={cycleRole} className={`px-3 py-1 rounded-full text-xs font-bold transition-all nav-press flex-shrink-0 ${roleFilter ? 'gradient-btn text-white' : 'bg-[#1A1A1A] text-[#8E8E93] border border-[#2C2C2E]'}`}>{roleFilter || 'Roles'}</button>
           <div className="w-px h-4 bg-[#2C2C2E] mx-1 flex-shrink-0" />
@@ -210,18 +360,18 @@ function MainScreen({ ownProfile, onViewOwnProfile }: {
         </div>
       </div>
 
-      {/* Own Profile — compact */}
+      {/* Own Profile */}
       <div className="px-3 pb-3">
         <button onClick={onViewOwnProfile} className="w-full flex items-center gap-3 p-2.5 bg-[#1A1A1A] border border-[#FF6B35]/50 rounded-xl nav-press text-left">
           <div className="relative flex-shrink-0 w-14 h-14 rounded-xl overflow-hidden bg-[#242424]">
-            {photo && imgLoaded ? (
-              <img src={photo} alt="You" className="w-full h-full object-cover" />
+            {photo ? (
+              <>
+                <img src={photo} alt="You" className={`w-full h-full object-cover ${photoLoaded ? 'opacity-100' : 'opacity-0'}`} onLoad={() => setPhotoLoaded(true)} onError={() => setPhotoLoaded(false)} />
+                {!photoLoaded && <div className="absolute inset-0 flex items-center justify-center"><span className="text-lg font-bold text-[#8E8E93]">{ownProfile.name.charAt(0)}</span></div>}
+              </>
             ) : (
-              <div className="w-full h-full flex items-center justify-center">
-                <span className="text-lg font-bold text-[#8E8E93]">{ownProfile.name.charAt(0)}</span>
-              </div>
+              <div className="w-full h-full flex items-center justify-center"><span className="text-lg font-bold text-[#8E8E93]">{ownProfile.name.charAt(0)}</span></div>
             )}
-            <img src={photo || ''} alt="" className="absolute inset-0 w-full h-full object-cover opacity-0" onLoad={() => setImgLoaded(true)} onError={() => setImgLoaded(false)} />
             <div className="absolute bottom-0 left-0 right-0 bg-[#0088CC]/70 text-center py-0.5"><span className="text-white text-[7px] font-bold uppercase">TG</span></div>
           </div>
           <div className="flex-1 min-w-0">
@@ -229,7 +379,7 @@ function MainScreen({ ownProfile, onViewOwnProfile }: {
             <div className="flex items-center gap-2 mt-0.5 text-[10px] text-[#8E8E93]">
               <span>{ownProfile.height}cm</span>
               <span>{ownProfile.weight}kg</span>
-              <span className="text-[#FF6B35] font-bold">{role}</span>
+              <span className="text-[#FF6B35] font-bold">{roleLabel}</span>
             </div>
           </div>
           <div className="flex items-center gap-1 bg-[#FF6B35]/10 px-2 py-1 rounded-full flex-shrink-0">
@@ -239,21 +389,49 @@ function MainScreen({ ownProfile, onViewOwnProfile }: {
         </button>
       </div>
 
-      {/* Empty state */}
+      {/* User Grid */}
       <div className="px-3">
-        <div className="text-center py-12 border-2 border-dashed border-[#2C2C2E] rounded-xl">
-          <Users className="w-8 h-8 text-[#2C2C2E] mx-auto mb-2" />
-          <p className="text-[#8E8E93] text-xs">No members nearby yet</p>
-          <p className="text-[#8E8E93] text-[10px] mt-1">Be the first to join</p>
+        <div className="grid grid-cols-5 gap-1.5">
+          {filteredUsers.map((user, i) => (
+            <button
+              key={user.id}
+              onClick={() => onViewPhoto(user)}
+              className="card-enter relative aspect-[3/4] rounded-lg overflow-hidden nav-press text-left"
+              style={{ animationDelay: `${i * 50}ms` }}
+            >
+              {user.tgPhotoUrl ? (
+                <img src={user.tgPhotoUrl} alt={user.name} className="w-full h-full object-cover" loading="lazy" />
+              ) : (
+                <div className="w-full h-full bg-[#1A1A1A] flex items-center justify-center">
+                  <span className="text-lg font-bold text-[#8E8E93]">{user.name.charAt(0)}</span>
+                </div>
+              )}
+              <div className="absolute inset-0 profile-photo-gradient" />
+              {user.isOnline && <div className="absolute top-0.5 right-0.5 w-2 h-2 bg-[#00D4AA] rounded-full online-pulse" />}
+              <div className="absolute bottom-0 left-0 right-0 px-1 pb-1">
+                <p className="font-semibold text-[10px] leading-tight truncate text-white">{user.name}</p>
+                <p className="text-[#FF6B35] text-[9px] font-medium">{formatDist(user.distance)}</p>
+              </div>
+            </button>
+          ))}
         </div>
+
+        {filteredUsers.length === 0 && (
+          <div className="text-center py-8">
+            <Users className="w-8 h-8 text-[#2C2C2E] mx-auto mb-2" />
+            <p className="text-[#8E8E93] text-xs">No members match this filter</p>
+            <button onClick={() => { setRoleFilter(null); setUseOpposite(true); }} className="text-[#FF6B35] text-xs mt-2 nav-press">Reset filter</button>
+          </div>
+        )}
       </div>
 
       {/* Legend */}
-      <div className="px-3 pt-3 flex items-center justify-between text-[10px] text-[#8E8E93]">
+      <div className="px-3 pt-2 flex items-center justify-between text-[10px] text-[#8E8E93]">
         <div className="flex items-center gap-3">
           <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-[#00D4AA]" />Online</span>
           <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-[#8E8E93]" />Offline</span>
         </div>
+        <span className="text-[#FF6B35]">You = orange border</span>
       </div>
     </div>
   )
@@ -265,7 +443,7 @@ function OwnProfileScreen({ profile, onUpdate, onBack }: {
   profile: UserProfile; onUpdate: (p: UserProfile) => void; onBack: () => void
 }) {
   const [editField, setEditField] = useState<string | null>(null)
-  const [imgLoaded, setImgLoaded] = useState(false)
+  const [photoLoaded, setPhotoLoaded] = useState(false)
 
   const saveToCloud = (field: string, value: string) => {
     const tg = tgWebApp()
@@ -306,17 +484,15 @@ function OwnProfileScreen({ profile, onUpdate, onBack }: {
         <div className="flex gap-3 shrink-0">
           {/* Photo */}
           <div className="relative w-20 h-20 rounded-xl overflow-hidden flex-shrink-0 bg-[#1A1A1A]">
-            {photo && imgLoaded ? (
-              <img src={photo} alt="You" className="w-full h-full object-cover" />
+            {photo ? (
+              <>
+                <img src={photo} alt="You" className={`w-full h-full object-cover ${photoLoaded ? 'opacity-100' : 'opacity-0'}`} onLoad={() => setPhotoLoaded(true)} onError={() => setPhotoLoaded(false)} />
+                {!photoLoaded && <div className="absolute inset-0 flex items-center justify-center"><span className="text-2xl font-bold text-[#8E8E93]">{profile.name.charAt(0)}</span></div>}
+              </>
             ) : (
-              <div className="w-full h-full flex items-center justify-center">
-                <span className="text-2xl font-bold text-[#8E8E93]">{profile.name.charAt(0)}</span>
-              </div>
+              <div className="w-full h-full flex items-center justify-center"><span className="text-2xl font-bold text-[#8E8E93]">{profile.name.charAt(0)}</span></div>
             )}
-            <img src={photo || ''} alt="" className="absolute inset-0 w-full h-full object-cover opacity-0" onLoad={() => setImgLoaded(true)} onError={() => setImgLoaded(false)} />
-            <div className="absolute bottom-0 left-0 right-0 bg-[#0088CC]/70 text-center py-0.5">
-              <span className="text-white text-[7px] font-bold uppercase">TG</span>
-            </div>
+            <div className="absolute bottom-0 left-0 right-0 bg-[#0088CC]/70 text-center py-0.5"><span className="text-white text-[7px] font-bold uppercase">TG</span></div>
           </div>
 
           {/* Stats column */}
@@ -331,7 +507,7 @@ function OwnProfileScreen({ profile, onUpdate, onBack }: {
               <span className="text-[#2C2C2E]">|</span>
               <span>{profile.weight}kg</span>
               <span className="text-[#2C2C2E]">|</span>
-              <span className="text-[#FF6B35] font-bold">{role}</span>
+              <span className="text-[#FF6B35] font-bold">{formatRole(profile.position, profile.isSide)}</span>
             </div>
             <div className="flex items-center gap-1.5">
               <button onClick={() => togglePref('preference1', 'Safe', 'Raw')} className={`text-[10px] font-bold px-2 py-0.5 rounded-full nav-press ${profile.preference1 === 'Safe' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>{profile.preference1}</button>
@@ -345,7 +521,6 @@ function OwnProfileScreen({ profile, onUpdate, onBack }: {
 
         {/* Editable Fields */}
         <div className="shrink-0 space-y-1.5">
-          {/* Height */}
           <button onClick={() => setEditField(editField === 'height' ? null : 'height')} className="w-full flex items-center justify-between px-3 py-2 bg-[#1A1A1A] rounded-lg text-left nav-press">
             <span className="text-xs text-[#8E8E93] font-medium uppercase">Height</span>
             <div className="flex items-center gap-1.5">
@@ -356,7 +531,6 @@ function OwnProfileScreen({ profile, onUpdate, onBack }: {
             </div>
           </button>
 
-          {/* Weight */}
           <button onClick={() => setEditField(editField === 'weight' ? null : 'weight')} className="w-full flex items-center justify-between px-3 py-2 bg-[#1A1A1A] rounded-lg text-left nav-press">
             <span className="text-xs text-[#8E8E93] font-medium uppercase">Weight</span>
             <div className="flex items-center gap-1.5">
@@ -370,30 +544,25 @@ function OwnProfileScreen({ profile, onUpdate, onBack }: {
 
         <div className="shrink-0 h-px bg-[#2C2C2E] my-3" />
 
-        {/* Position Section — Slider + Side */}
+        {/* Role Section — 2 Radio Buttons + Slider */}
         <div className="shrink-0 space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-[#8E8E93] font-medium uppercase">Role</span>
-            <span className="text-white text-sm font-bold">{role}</span>
-          </div>
-
-          {/* Radio buttons: Slider vs Side */}
+          {/* Radio buttons — left shows current role, right is Side */}
           <div className="flex gap-2">
             <button
               onClick={() => update('isSide', false)}
-              className={`flex-1 h-8 rounded-lg text-xs font-bold transition-all nav-press ${!profile.isSide ? 'gradient-btn text-white' : 'bg-[#1A1A1A] text-[#8E8E93] border border-[#2C2C2E]'}`}
+              className={`flex-1 h-9 rounded-lg text-xs font-bold transition-all nav-press ${!profile.isSide ? 'gradient-btn text-white' : 'bg-[#1A1A1A] text-[#8E8E93] border border-[#2C2C2E]'}`}
             >
-              Scale
+              {profile.isSide ? formatRole(profile.position, false) : role}
             </button>
             <button
               onClick={() => update('isSide', true)}
-              className={`flex-1 h-8 rounded-lg text-xs font-bold transition-all nav-press ${profile.isSide ? 'gradient-btn text-white' : 'bg-[#1A1A1A] text-[#8E8E93] border border-[#2C2C2E]'}`}
+              className={`flex-1 h-9 rounded-lg text-xs font-bold transition-all nav-press ${profile.isSide ? 'gradient-btn text-white' : 'bg-[#1A1A1A] text-[#8E8E93] border border-[#2C2C2E]'}`}
             >
               Side
             </button>
           </div>
 
-          {/* Slider — only when Scale is selected */}
+          {/* Slider — only when NOT Side */}
           {!profile.isSide && (
             <div className="space-y-1">
               <div className="flex items-center justify-between text-[10px] text-[#8E8E93]">
@@ -408,7 +577,8 @@ function OwnProfileScreen({ profile, onUpdate, onBack }: {
                 step="0.1"
                 value={profile.position}
                 onChange={(e) => update('position', parseFloat(e.target.value))}
-                className="w-full h-2 bg-[#2C2C2E] rounded-full appearance-none cursor-pointer accent-[#FF6B35]"
+                className="w-full h-2 bg-[#2C2C2E] rounded-full appearance-none cursor-pointer"
+                style={{ accentColor: '#FF6B35' }}
               />
               <div className="flex justify-between px-1">
                 {[0, 0.2, 0.4, 0.6, 0.8, 1].map(v => (
@@ -419,7 +589,7 @@ function OwnProfileScreen({ profile, onUpdate, onBack }: {
           )}
         </div>
 
-        {/* Spacer */}
+        {/* Spacer pushes save to bottom */}
         <div className="flex-1 min-h-0" />
 
         {/* Save */}
@@ -467,9 +637,12 @@ export default function App() {
     preference1: 'Safe', preference2: 'Clean', preference3: '1on1',
     tgUsername: '', tgPhotoUrl: '', tgPhotos: [],
   })
+  const [users, setUsers] = useState<UserProfile[]>(MOCK_USERS)
   const [photoOverlay, setPhotoOverlay] = useState<UserProfile | null>(null)
+  const [locationGranted, setLocationGranted] = useState(false)
+  const [, setMyLocation] = useState<{ lat: number; lng: number } | null>(null)
 
-  // Load from Telegram + CloudStorage
+  // ── Load from Telegram + CloudStorage ────────────────────────────
   useEffect(() => {
     const tg = tgWebApp()
     if (!tg) return
@@ -503,22 +676,72 @@ export default function App() {
     })
   }, [])
 
+  // ── Location handler ─────────────────────────────────────────────
+  const handleLocationGranted = (lat: number, lng: number) => {
+    setLocationGranted(true)
+    setMyLocation({ lat, lng })
+    setOwnProfile(prev => ({ ...prev, lat, lng }))
+    saveToCloud(CLOUD.lat, String(lat))
+    saveToCloud(CLOUD.lng, String(lng))
+
+    // Calculate distances for mock users
+    setUsers(prev => prev.map(u => ({
+      ...u,
+      distance: u.lat && u.lng ? Math.round(getDistance(lat, lng, u.lat, u.lng)) : u.distance,
+    })))
+
+    // TODO: Fetch real nearby users from backend
+    // fetch(`${SUPABASE_URL}/nearby?lat=${lat}&lng=${lng}&radius=5000`, ...)
+  }
+
+  const handleMessage = (user: UserProfile) => {
+    const tg = tgWebApp()
+    if (tg?.openTelegramLink) tg.openTelegramLink(`https://t.me/${user.tgUsername || user.name.toLowerCase()}`)
+  }
+
+  // Block app until location granted
+  if (!locationGranted) {
+    return (
+      <div className="min-h-screen bg-neutral-950 flex justify-center">
+        <div className="w-full max-w-[430px] bg-[#0A0A0A] h-screen relative">
+          <LocationGate onGranted={handleLocationGranted} />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-neutral-950 flex justify-center">
       <div className="w-full max-w-[430px] bg-[#0A0A0A] h-screen relative flex flex-col">
         {view === 'MAIN' ? (
-          <MainScreen ownProfile={ownProfile} onViewOwnProfile={() => setView('OWN_PROFILE')} />
+          <MainScreen ownProfile={ownProfile} users={users} onViewOwnProfile={() => setView('OWN_PROFILE')} onViewPhoto={(u) => setPhotoOverlay(u)} />
         ) : (
           <OwnProfileScreen profile={ownProfile} onUpdate={setOwnProfile} onBack={() => setView('MAIN')} />
         )}
         {photoOverlay && (
-          <PhotoOverlay user={photoOverlay} onClose={() => setPhotoOverlay(null)} onMessage={(u) => {
-            const tg = tgWebApp()
-            if (tg?.openTelegramLink) tg.openTelegramLink(`https://t.me/${u.tgUsername || u.name.toLowerCase()}`)
-          }} />
+          <PhotoOverlay user={photoOverlay} onClose={() => setPhotoOverlay(null)} onMessage={handleMessage} />
         )}
         <BottomNav />
       </div>
     </div>
   )
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────
+
+function saveToCloud(key: string, value: string) {
+  const tg = tgWebApp()
+  if (tg?.CloudStorage) tg.CloudStorage.setItem(key, value)
+}
+
+// Haversine distance in meters
+function getDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371e3
+  const φ1 = lat1 * Math.PI / 180
+  const φ2 = lat2 * Math.PI / 180
+  const Δφ = (lat2 - lat1) * Math.PI / 180
+  const Δλ = (lng2 - lng1) * Math.PI / 180
+  const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2)
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  return R * c
 }
