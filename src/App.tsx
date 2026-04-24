@@ -21,7 +21,8 @@ interface UserProfile {
   age: number
   height: number
   weight: number
-  position: string
+  position: number        // 0.0 to 1.0
+  isSide: boolean         // Side mode toggle
   isOnline: boolean
   distance: number
   isOwn?: boolean
@@ -68,18 +69,29 @@ const CLOUD = {
   height: 'hk_height',
   weight: 'hk_weight',
   position: 'hk_position',
+  isSide: 'hk_isSide',
   pref1: 'hk_pref1',
   pref2: 'hk_pref2',
   pref3: 'hk_pref3',
 }
 
-const POSITIONS = ['Top', 'Vers Top', 'Versatile', 'Vers Bottom', 'Bottom']
+// ─── Position Display Helper ─────────────────────────────────────────
+
+function formatRole(value: number, isSide: boolean): string {
+  if (isSide) return 'Side'
+  if (value === 0) return '0 B'
+  if (value === 1) return '1 T'
+  if (value <= 0.35) return `${value.toFixed(1)} VB`
+  if (value <= 0.65) return `${value.toFixed(1)} V`
+  return `${value.toFixed(1)} VT`
+}
 
 // ─── Photo Overlay ───────────────────────────────────────────────────
 
 function PhotoOverlay({ user, onClose, onMessage }: { user: UserProfile; onClose: () => void; onMessage: (u: UserProfile) => void }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [activeIdx, setActiveIdx] = useState(0)
+  const [imgError, setImgError] = useState(false)
   const photos = user.tgPhotos?.length ? user.tgPhotos : (user.tgPhotoUrl ? [user.tgPhotoUrl] : [])
 
   const handleScroll = () => {
@@ -88,6 +100,7 @@ function PhotoOverlay({ user, onClose, onMessage }: { user: UserProfile; onClose
   }
 
   const formatDist = (d: number) => d === 0 ? '0m' : d < 1000 ? `${d}m` : `${(d / 1000).toFixed(1)}km`
+  const role = formatRole(user.position, user.isSide)
 
   return (
     <div className="fixed inset-0 z-[60] bg-black/95 flex flex-col animate-in fade-in duration-200">
@@ -96,12 +109,12 @@ function PhotoOverlay({ user, onClose, onMessage }: { user: UserProfile; onClose
       </button>
 
       <div className="flex-1 flex items-center relative">
-        {photos.length > 0 ? (
+        {photos.length > 0 && !imgError ? (
           <>
             <div ref={scrollRef} onScroll={handleScroll} className="w-full flex overflow-x-auto snap-x snap-mandatory scrollbar-hide">
               {photos.map((photo, i) => (
                 <div key={i} className="w-full flex-shrink-0 snap-center flex items-center justify-center">
-                  <img src={photo} alt={`${user.name} ${i + 1}`} className="max-w-full max-h-[65vh] object-contain" draggable={false} />
+                  <img src={photo} alt={`${user.name} ${i + 1}`} className="max-w-full max-h-[65vh] object-contain" draggable={false} onError={() => setImgError(true)} />
                 </div>
               ))}
             </div>
@@ -145,7 +158,7 @@ function PhotoOverlay({ user, onClose, onMessage }: { user: UserProfile; onClose
         <div className="flex gap-3 mt-3 text-xs">
           <span className="text-[#8E8E93]">{user.height}cm</span>
           <span className="text-[#8E8E93]">{user.weight}kg</span>
-          <span className="text-[#8E8E93]">{user.position}</span>
+          <span className="text-[#FF6B35] font-bold">{role}</span>
           {user.preference1 && <span className={`font-bold ${user.preference1 === 'Safe' ? 'text-green-400' : 'text-red-400'}`}>{user.preference1}</span>}
           {user.preference2 && <span className={`font-bold ${user.preference2 === 'Clean' ? 'text-blue-400' : 'text-purple-400'}`}>{user.preference2}</span>}
           {user.preference3 && <span className={`font-bold ${user.preference3 === '1on1' ? 'text-yellow-400' : 'text-orange-400'}`}>{user.preference3}</span>}
@@ -163,16 +176,19 @@ function MainScreen({ ownProfile, onViewOwnProfile }: {
 }) {
   const [onlineOnly, setOnlineOnly] = useState(false)
   const [roleFilter, setRoleFilter] = useState<string | null>(null)
+  const [imgLoaded, setImgLoaded] = useState(false)
 
   const cycleRole = () => {
-    if (roleFilter === null) setRoleFilter('Top')
-    else {
-      const idx = POSITIONS.indexOf(roleFilter)
-      setRoleFilter(idx < POSITIONS.length - 1 ? POSITIONS[idx + 1] : null)
-    }
+    if (roleFilter === null) setRoleFilter('B')
+    else if (roleFilter === 'B') setRoleFilter('VB')
+    else if (roleFilter === 'VB') setRoleFilter('V')
+    else if (roleFilter === 'V') setRoleFilter('VT')
+    else if (roleFilter === 'VT') setRoleFilter('T')
+    else setRoleFilter(null)
   }
 
   const photo = ownProfile.tgPhotoUrl
+  const role = formatRole(ownProfile.position, ownProfile.isSide)
 
   return (
     <div className="pb-20">
@@ -198,7 +214,14 @@ function MainScreen({ ownProfile, onViewOwnProfile }: {
       <div className="px-3 pb-3">
         <button onClick={onViewOwnProfile} className="w-full flex items-center gap-3 p-2.5 bg-[#1A1A1A] border border-[#FF6B35]/50 rounded-xl nav-press text-left">
           <div className="relative flex-shrink-0 w-14 h-14 rounded-xl overflow-hidden bg-[#242424]">
-            {photo ? <img src={photo} alt="You" className="w-full h-full object-cover" /> : <span className="w-full h-full flex items-center justify-center text-lg font-bold text-[#8E8E93]">{ownProfile.name.charAt(0)}</span>}
+            {photo && imgLoaded ? (
+              <img src={photo} alt="You" className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center">
+                <span className="text-lg font-bold text-[#8E8E93]">{ownProfile.name.charAt(0)}</span>
+              </div>
+            )}
+            <img src={photo || ''} alt="" className="absolute inset-0 w-full h-full object-cover opacity-0" onLoad={() => setImgLoaded(true)} onError={() => setImgLoaded(false)} />
             <div className="absolute bottom-0 left-0 right-0 bg-[#0088CC]/70 text-center py-0.5"><span className="text-white text-[7px] font-bold uppercase">TG</span></div>
           </div>
           <div className="flex-1 min-w-0">
@@ -206,7 +229,7 @@ function MainScreen({ ownProfile, onViewOwnProfile }: {
             <div className="flex items-center gap-2 mt-0.5 text-[10px] text-[#8E8E93]">
               <span>{ownProfile.height}cm</span>
               <span>{ownProfile.weight}kg</span>
-              <span className="text-[#FF6B35]">{ownProfile.position}</span>
+              <span className="text-[#FF6B35] font-bold">{role}</span>
             </div>
           </div>
           <div className="flex items-center gap-1 bg-[#FF6B35]/10 px-2 py-1 rounded-full flex-shrink-0">
@@ -216,7 +239,7 @@ function MainScreen({ ownProfile, onViewOwnProfile }: {
         </button>
       </div>
 
-      {/* Empty state — no test data */}
+      {/* Empty state */}
       <div className="px-3">
         <div className="text-center py-12 border-2 border-dashed border-[#2C2C2E] rounded-xl">
           <Users className="w-8 h-8 text-[#2C2C2E] mx-auto mb-2" />
@@ -242,6 +265,7 @@ function OwnProfileScreen({ profile, onUpdate, onBack }: {
   profile: UserProfile; onUpdate: (p: UserProfile) => void; onBack: () => void
 }) {
   const [editField, setEditField] = useState<string | null>(null)
+  const [imgLoaded, setImgLoaded] = useState(false)
 
   const saveToCloud = (field: string, value: string) => {
     const tg = tgWebApp()
@@ -251,7 +275,11 @@ function OwnProfileScreen({ profile, onUpdate, onBack }: {
   const update = (field: keyof UserProfile, value: unknown) => {
     const updated = { ...profile, [field]: value }
     onUpdate(updated)
-    const keyMap: Record<string, string> = { height: CLOUD.height, weight: CLOUD.weight, position: CLOUD.position, preference1: CLOUD.pref1, preference2: CLOUD.pref2, preference3: CLOUD.pref3 }
+    const keyMap: Record<string, string> = {
+      height: CLOUD.height, weight: CLOUD.weight,
+      position: CLOUD.position, isSide: CLOUD.isSide,
+      preference1: CLOUD.pref1, preference2: CLOUD.pref2, preference3: CLOUD.pref3,
+    }
     if (keyMap[field]) saveToCloud(keyMap[field], String(value))
   }
 
@@ -260,6 +288,7 @@ function OwnProfileScreen({ profile, onUpdate, onBack }: {
   }
 
   const photo = profile.tgPhotoUrl
+  const role = formatRole(profile.position, profile.isSide)
 
   return (
     <div className="h-full flex flex-col view-enter">
@@ -270,38 +299,40 @@ function OwnProfileScreen({ profile, onUpdate, onBack }: {
         <div className="w-8" />
       </div>
 
-      {/* Content — all visible without scroll */}
+      {/* All content — no scroll */}
       <div className="flex-1 flex flex-col px-3 pt-3 pb-2 overflow-hidden">
 
         {/* Row 1: Photo + Stats */}
         <div className="flex gap-3 shrink-0">
           {/* Photo */}
           <div className="relative w-20 h-20 rounded-xl overflow-hidden flex-shrink-0 bg-[#1A1A1A]">
-            {photo ? (
+            {photo && imgLoaded ? (
               <img src={photo} alt="You" className="w-full h-full object-cover" />
             ) : (
-              <div className="w-full h-full flex items-center justify-center"><span className="text-2xl font-bold text-[#8E8E93]">{profile.name.charAt(0)}</span></div>
+              <div className="w-full h-full flex items-center justify-center">
+                <span className="text-2xl font-bold text-[#8E8E93]">{profile.name.charAt(0)}</span>
+              </div>
             )}
-            <div className="absolute bottom-0 left-0 right-0 bg-[#0088CC]/70 text-center py-0.5"><span className="text-white text-[7px] font-bold uppercase">TG</span></div>
+            <img src={photo || ''} alt="" className="absolute inset-0 w-full h-full object-cover opacity-0" onLoad={() => setImgLoaded(true)} onError={() => setImgLoaded(false)} />
+            <div className="absolute bottom-0 left-0 right-0 bg-[#0088CC]/70 text-center py-0.5">
+              <span className="text-white text-[7px] font-bold uppercase">TG</span>
+            </div>
           </div>
 
           {/* Stats column */}
           <div className="flex-1 flex flex-col justify-center gap-1 min-w-0">
-            {/* Name + Age */}
             <div className="flex items-center gap-2">
               <span className="text-white font-bold text-base">{profile.name}</span>
               <span className="text-[#8E8E93] text-sm">{profile.age}</span>
               {profile.isOnline && <span className="px-1.5 py-0.5 bg-[#00D4AA]/20 text-[#00D4AA] text-[9px] font-bold rounded-full">ONLINE</span>}
             </div>
-            {/* Height | Weight | Position */}
             <div className="flex items-center gap-2 text-xs text-[#8E8E93]">
               <span>{profile.height}cm</span>
               <span className="text-[#2C2C2E]">|</span>
               <span>{profile.weight}kg</span>
               <span className="text-[#2C2C2E]">|</span>
-              <span className="text-[#FF6B35]">{profile.position}</span>
+              <span className="text-[#FF6B35] font-bold">{role}</span>
             </div>
-            {/* Preferences */}
             <div className="flex items-center gap-1.5">
               <button onClick={() => togglePref('preference1', 'Safe', 'Raw')} className={`text-[10px] font-bold px-2 py-0.5 rounded-full nav-press ${profile.preference1 === 'Safe' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>{profile.preference1}</button>
               <button onClick={() => togglePref('preference2', 'Clean', 'Party')} className={`text-[10px] font-bold px-2 py-0.5 rounded-full nav-press ${profile.preference2 === 'Clean' ? 'bg-blue-500/20 text-blue-400' : 'bg-purple-500/20 text-purple-400'}`}>{profile.preference2}</button>
@@ -310,7 +341,6 @@ function OwnProfileScreen({ profile, onUpdate, onBack }: {
           </div>
         </div>
 
-        {/* Divider */}
         <div className="shrink-0 h-px bg-[#2C2C2E] my-3" />
 
         {/* Editable Fields */}
@@ -336,28 +366,63 @@ function OwnProfileScreen({ profile, onUpdate, onBack }: {
               <ChevronRight className={`w-3 h-3 text-[#8E8E93] transition-transform ${editField === 'weight' ? 'rotate-90' : ''}`} />
             </div>
           </button>
+        </div>
 
-          {/* Position */}
-          <button onClick={() => setEditField(editField === 'position' ? null : 'position')} className="w-full flex items-center justify-between px-3 py-2 bg-[#1A1A1A] rounded-lg text-left nav-press">
-            <span className="text-xs text-[#8E8E93] font-medium uppercase">Position</span>
-            <div className="flex items-center gap-1.5">
-              <span className="text-white text-sm font-medium">{profile.position}</span>
-              <ChevronRight className={`w-3 h-3 text-[#8E8E93] transition-transform ${editField === 'position' ? 'rotate-90' : ''}`} />
-            </div>
-          </button>
-          {editField === 'position' && (
-            <div className="flex flex-wrap gap-1.5 px-1">
-              {POSITIONS.map((pos) => (
-                <button key={pos} onClick={() => { update('position', pos); setEditField(null) }} className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all nav-press ${profile.position === pos ? 'gradient-btn text-white' : 'bg-[#1A1A1A] text-[#8E8E93] border border-[#2C2C2E]'}`}>{pos}</button>
-              ))}
+        <div className="shrink-0 h-px bg-[#2C2C2E] my-3" />
+
+        {/* Position Section — Slider + Side */}
+        <div className="shrink-0 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-[#8E8E93] font-medium uppercase">Role</span>
+            <span className="text-white text-sm font-bold">{role}</span>
+          </div>
+
+          {/* Radio buttons: Slider vs Side */}
+          <div className="flex gap-2">
+            <button
+              onClick={() => update('isSide', false)}
+              className={`flex-1 h-8 rounded-lg text-xs font-bold transition-all nav-press ${!profile.isSide ? 'gradient-btn text-white' : 'bg-[#1A1A1A] text-[#8E8E93] border border-[#2C2C2E]'}`}
+            >
+              Scale
+            </button>
+            <button
+              onClick={() => update('isSide', true)}
+              className={`flex-1 h-8 rounded-lg text-xs font-bold transition-all nav-press ${profile.isSide ? 'gradient-btn text-white' : 'bg-[#1A1A1A] text-[#8E8E93] border border-[#2C2C2E]'}`}
+            >
+              Side
+            </button>
+          </div>
+
+          {/* Slider — only when Scale is selected */}
+          {!profile.isSide && (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between text-[10px] text-[#8E8E93]">
+                <span>0 (Bottom)</span>
+                <span className="text-white font-bold text-xs">{profile.position.toFixed(1)}</span>
+                <span>1 (Top)</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.1"
+                value={profile.position}
+                onChange={(e) => update('position', parseFloat(e.target.value))}
+                className="w-full h-2 bg-[#2C2C2E] rounded-full appearance-none cursor-pointer accent-[#FF6B35]"
+              />
+              <div className="flex justify-between px-1">
+                {[0, 0.2, 0.4, 0.6, 0.8, 1].map(v => (
+                  <span key={v} className={`text-[8px] ${Math.abs(profile.position - v) < 0.05 ? 'text-[#FF6B35] font-bold' : 'text-[#8E8E93]'}`}>{v.toFixed(1)}</span>
+                ))}
+              </div>
             </div>
           )}
         </div>
 
-        {/* Spacer pushes save button to bottom */}
+        {/* Spacer */}
         <div className="flex-1 min-h-0" />
 
-        {/* Save — always visible at bottom */}
+        {/* Save */}
         <div className="shrink-0 pt-2">
           <button onClick={onBack} className="w-full h-10 gradient-btn rounded-xl text-white font-semibold text-sm nav-press flex items-center justify-center gap-2">
             <Check className="w-4 h-4" />Save
@@ -373,8 +438,11 @@ function OwnProfileScreen({ profile, onUpdate, onBack }: {
 function BottomNav() {
   const openGroupChat = () => {
     const tg = tgWebApp()
-    if (tg?.openTelegramLink) tg.openTelegramLink('https://t.me/hkmembersonlychat')
-    else if (tg?.openLink) tg.openLink('https://t.me/hkmembersonlychat')
+    if (tg?.openTelegramLink) {
+      tg.openTelegramLink('https://t.me/hkmembersonlychat')
+    } else if (tg?.openLink) {
+      tg.openLink('https://t.me/hkmembersonlychat')
+    }
   }
 
   return (
@@ -395,7 +463,7 @@ export default function App() {
   const [view, setView] = useState<View>('MAIN')
   const [ownProfile, setOwnProfile] = useState<UserProfile>({
     id: 'own', name: 'You', age: 0, height: 178, weight: 72,
-    position: 'Versatile', isOnline: true, distance: 0, isOwn: true,
+    position: 0.5, isSide: false, isOnline: true, distance: 0, isOwn: true,
     preference1: 'Safe', preference2: 'Clean', preference3: '1on1',
     tgUsername: '', tgPhotoUrl: '', tgPhotos: [],
   })
@@ -426,18 +494,14 @@ export default function App() {
         ...prev,
         height: result[CLOUD.height] ? parseInt(result[CLOUD.height]) : prev.height,
         weight: result[CLOUD.weight] ? parseInt(result[CLOUD.weight]) : prev.weight,
-        position: (result[CLOUD.position] as UserProfile['position']) || prev.position,
+        position: result[CLOUD.position] ? parseFloat(result[CLOUD.position]) : prev.position,
+        isSide: result[CLOUD.isSide] === 'true',
         preference1: (result[CLOUD.pref1] as UserProfile['preference1']) || prev.preference1,
         preference2: (result[CLOUD.pref2] as UserProfile['preference2']) || prev.preference2,
         preference3: (result[CLOUD.pref3] as UserProfile['preference3']) || prev.preference3,
       }))
     })
   }, [])
-
-  const handleMessage = (user: UserProfile) => {
-    const tg = tgWebApp()
-    if (tg?.openTelegramLink) tg.openTelegramLink(`https://t.me/${user.tgUsername || user.name.toLowerCase()}`)
-  }
 
   return (
     <div className="min-h-screen bg-neutral-950 flex justify-center">
@@ -447,9 +511,12 @@ export default function App() {
         ) : (
           <OwnProfileScreen profile={ownProfile} onUpdate={setOwnProfile} onBack={() => setView('MAIN')} />
         )}
-
-        {photoOverlay && <PhotoOverlay user={photoOverlay} onClose={() => setPhotoOverlay(null)} onMessage={handleMessage} />}
-
+        {photoOverlay && (
+          <PhotoOverlay user={photoOverlay} onClose={() => setPhotoOverlay(null)} onMessage={(u) => {
+            const tg = tgWebApp()
+            if (tg?.openTelegramLink) tg.openTelegramLink(`https://t.me/${u.tgUsername || u.name.toLowerCase()}`)
+          }} />
+        )}
         <BottomNav />
       </div>
     </div>
