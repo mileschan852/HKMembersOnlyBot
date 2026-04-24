@@ -13,6 +13,7 @@ import {
   MessageCircle,
   LocateFixed,
 } from 'lucide-react'
+import { upsertUser, fetchNearby, setOnlineStatus, type DbUser } from './lib/supabase'
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -72,6 +73,7 @@ const tgWebApp = (): TgWebApp | undefined => {
 // ─── Cloud Storage Keys ──────────────────────────────────────────────
 
 const CLOUD = {
+  age: 'hk_age',
   height: 'hk_height',
   weight: 'hk_weight',
   position: 'hk_position',
@@ -131,6 +133,40 @@ function passesOppositeFilter(user: UserProfile, me: UserProfile): boolean {
   if (myVal >= 0.7 && myVal < 1) return theirVal < 0.9
   if (myVal > 0.1 && myVal <= 0.35) return theirVal > 0.1
   return true
+}
+
+// Convert Supabase DbUser to app UserProfile
+function dbToProfile(u: DbUser, myLat: number, myLng: number): UserProfile {
+  const dist = u.lat && u.lng ? getDistance(myLat, myLng, u.lat, u.lng) : 0
+  return {
+    id: String(u.id),
+    name: u.name,
+    age: 0,
+    height: u.height,
+    weight: u.weight,
+    position: u.position,
+    isSide: u.is_side,
+    isOnline: u.is_online,
+    distance: Math.round(dist),
+    lat: u.lat,
+    lng: u.lng,
+    preference1: u.preference1 as 'Safe' | 'Raw',
+    preference2: u.preference2 as 'Clean' | 'Party',
+    preference3: u.preference3 as '1on1' | 'Group',
+    tgUsername: u.tg_username || undefined,
+    tgPhotoUrl: u.photo_url || undefined,
+    tgPhotos: u.photo_url ? [u.photo_url] : [],
+  }
+}
+
+// Haversine distance in meters
+function getDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371e3
+  const toRad = (x: number) => x * Math.PI / 180
+  const dLat = toRad(lat2 - lat1)
+  const dLng = toRad(lng2 - lng1)
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
 // ─── Distance Format ─────────────────────────────────────────────────
@@ -426,6 +462,7 @@ function OwnProfileScreen({ profile, onUpdate, onBack }: {
     const updated = { ...profile, [field]: value }
     onUpdate(updated)
     const keyMap: Record<string, string> = {
+      age: CLOUD.age,
       height: CLOUD.height, weight: CLOUD.weight,
       position: CLOUD.position, isSide: CLOUD.isSide,
       preference1: CLOUD.pref1, preference2: CLOUD.pref2, preference3: CLOUD.pref3,
@@ -490,8 +527,18 @@ function OwnProfileScreen({ profile, onUpdate, onBack }: {
 
         <div className="shrink-0 h-px bg-[#2C2C2E] my-3" />
 
-        {/* Height / Weight */}
+        {/* Age / Height / Weight */}
         <div className="shrink-0 space-y-1.5">
+          <button onClick={() => setEditField(editField === 'age' ? null : 'age')} className="w-full flex items-center justify-between px-3 py-2 bg-[#1A1A1A] rounded-lg text-left nav-press">
+            <span className="text-xs text-[#8E8E93] font-medium uppercase">Age</span>
+            <div className="flex items-center gap-1.5">
+              {editField === 'age' ? (
+                <input autoFocus type="number" value={profile.age} onChange={(e) => update('age', parseInt(e.target.value) || 0)} className="bg-transparent text-white text-sm font-medium text-right outline-none w-12" onClick={(e) => e.stopPropagation()} />
+              ) : (<span className="text-white text-sm font-medium">{profile.age || 'Set'}</span>)}
+              <ChevronRight className={`w-3 h-3 text-[#8E8E93] transition-transform ${editField === 'age' ? 'rotate-90' : ''}`} />
+            </div>
+          </button>
+
           <button onClick={() => setEditField(editField === 'height' ? null : 'height')} className="w-full flex items-center justify-between px-3 py-2 bg-[#1A1A1A] rounded-lg text-left nav-press">
             <span className="text-xs text-[#8E8E93] font-medium uppercase">Height</span>
             <div className="flex items-center gap-1.5">
@@ -614,9 +661,10 @@ export default function App() {
     preference1: 'Safe', preference2: 'Clean', preference3: '1on1',
     tgUsername: '', tgPhotoUrl: '', tgPhotos: [],
   })
-  const [users, _setUsers] = useState<UserProfile[]>([])
+  const [users, setUsers] = useState<UserProfile[]>([])
   const [photoOverlay, setPhotoOverlay] = useState<UserProfile | null>(null)
   const [locationGranted, setLocationGranted] = useState(false)
+  const tgUserId = useRef<number | null>(null)
 
   // ── Load from Telegram + CloudStorage ────────────────────────────
   useEffect(() => {
@@ -629,8 +677,10 @@ export default function App() {
 
     const user = tg.initDataUnsafe?.user
     if (user) {
+      tgUserId.current = user.id
       setOwnProfile(prev => ({
         ...prev,
+        id: String(user.id),
         name: user.first_name || prev.name,
         tgUsername: user.username || prev.tgUsername,
         tgPhotoUrl: user.photo_url || prev.tgPhotoUrl,
@@ -640,23 +690,73 @@ export default function App() {
 
     tg.CloudStorage.getItems(Object.values(CLOUD), (err, result) => {
       if (err || !result) return
-      setOwnProfile(prev => ({
-        ...prev,
-        height: result[CLOUD.height] ? parseInt(result[CLOUD.height]) : prev.height,
-        weight: result[CLOUD.weight] ? parseInt(result[CLOUD.weight]) : prev.weight,
-        position: result[CLOUD.position] ? parseFloat(result[CLOUD.position]) : prev.position,
+      const loaded = {
+        age: result[CLOUD.age] ? parseInt(result[CLOUD.age]) : 0,
+        height: result[CLOUD.height] ? parseInt(result[CLOUD.height]) : 170,
+        weight: result[CLOUD.weight] ? parseInt(result[CLOUD.weight]) : 65,
+        position: result[CLOUD.position] ? parseFloat(result[CLOUD.position]) : 0.5,
         isSide: result[CLOUD.isSide] === 'true',
-        preference1: (result[CLOUD.pref1] as UserProfile['preference1']) || prev.preference1,
-        preference2: (result[CLOUD.pref2] as UserProfile['preference2']) || prev.preference2,
-        preference3: (result[CLOUD.pref3] as UserProfile['preference3']) || prev.preference3,
-      }))
+        preference1: (result[CLOUD.pref1] as UserProfile['preference1']) || 'Safe',
+        preference2: (result[CLOUD.pref2] as UserProfile['preference2']) || 'Clean',
+        preference3: (result[CLOUD.pref3] as UserProfile['preference3']) || '1on1',
+      }
+      setOwnProfile(prev => {
+        const updated = { ...prev, ...loaded }
+        doUpsert(updated)
+        return updated
+      })
     })
 
-    // TODO: Fetch real nearby users from backend
-    // fetch(`${API_URL}/nearby?lat=${lat}&lng=${lng}`)
-    //   .then(r => r.json())
-    //   .then(data => setUsers(data))
+    // Save to Supabase after CloudStorage data is loaded
+    const doUpsert = (profile: UserProfile) => {
+      if (tgUserId.current) {
+        upsertUser({
+          id: tgUserId.current,
+          name: profile.name,
+          photo_url: profile.tgPhotoUrl || null,
+          height: profile.height,
+          weight: profile.weight,
+          position: profile.position,
+          is_side: profile.isSide,
+          preference1: profile.preference1 || 'Safe',
+          preference2: profile.preference2 || 'Clean',
+          preference3: profile.preference3 || '1on1',
+          tg_username: profile.tgUsername || null,
+        }).catch(console.error)
+      }
+    }
+
   }, [])
+
+  // Heartbeat: update online status every 30s, refresh nearby users every 60s
+  useEffect(() => {
+    if (!locationGranted) return
+    const uid = tgUserId.current
+    if (!uid) return
+
+    const heartbeat = setInterval(() => {
+      setOnlineStatus(uid, true).catch(console.error)
+    }, 30000)
+
+    const refresh = setInterval(() => {
+      const lat = ownProfile.lat
+      const lng = ownProfile.lng
+      if (lat && lng) {
+        fetchNearby(lat, lng).then(dbUsers => {
+          const myId = tgUserId.current
+          const mapped = dbUsers
+            .filter(u => u.id !== myId)
+            .map(u => dbToProfile(u, lat, lng))
+          setUsers(mapped)
+        }).catch(console.error)
+      }
+    }, 60000)
+
+    return () => {
+      clearInterval(heartbeat)
+      clearInterval(refresh)
+    }
+  }, [locationGranted])
 
   const handleLocationGranted = (lat: number, lng: number) => {
     setLocationGranted(true)
@@ -669,10 +769,25 @@ export default function App() {
       tg.CloudStorage.setItem(CLOUD.lng, String(lng))
     }
 
-    // TODO: Replace with real backend call
-    // fetch(`${API_URL}/nearby?lat=${lat}&lng=${lng}&radius=5000`)
-    //   .then(r => r.json())
-    //   .then(data => setUsers(data))
+    // Save location to Supabase
+    const uid = tgUserId.current
+    if (uid) {
+      upsertUser({
+        id: uid,
+        lat,
+        lng,
+        is_online: true,
+      }).catch(console.error)
+    }
+
+    // Fetch nearby users from Supabase
+    fetchNearby(lat, lng).then(dbUsers => {
+      const myId = tgUserId.current
+      const mapped: UserProfile[] = dbUsers
+        .filter(u => u.id !== myId)
+        .map(u => dbToProfile(u, lat, lng))
+      setUsers(mapped)
+    }).catch(console.error)
   }
 
   const handleMessage = (user: UserProfile) => {
